@@ -1,0 +1,37 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+dist-ssr/
+
+# env files (never commit real credentials)
+.env
+.env.local
+.env.*.local
+
+# firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+database-debug.log
+ui-debug.log
+*-debug.log
+functions/node_modules/
+functions/lib/
+functions/.env*
+
+# editor / os
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# service account keys - NEVER commit these
+*serviceAccountKey*.json
+*-firebase-adminsdk-*.json

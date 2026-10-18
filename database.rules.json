@@ -1,0 +1,44 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "live": {
+      "$classroomId": {
+        ".read": "auth != null && ((data.child('teacherUid').val() === auth.uid && auth.token.role === 'teacher') || root.child('rosters').child($classroomId).child(auth.uid).val() === true)",
+
+        "teacherUid": {
+          ".write": false
+        },
+
+        "session": {
+          ".write": "auth != null && auth.token.role === 'teacher' && root.child('live').child($classroomId).child('teacherUid').val() === auth.uid"
+        },
+
+        "pages": {
+          "$pageId": {
+            ".write": "auth != null && auth.token.role === 'teacher' && root.child('live').child($classroomId).child('teacherUid').val() === auth.uid"
+          }
+        }
+      }
+    },
+
+    "rosters": {
+      "$classroomId": {
+      ".read": "auth != null && auth.token.role === 'teacher' && root.child('live').child($classroomId).child('teacherUid').val() === auth.uid",
+        "$uid": {
+          ".write": false
+        }
+      }
+    },
+
+    "presence": {
+      "$classroomId": {
+        ".read": "auth != null && ((root.child('live').child($classroomId).child('teacherUid').val() === auth.uid && auth.token.role === 'teacher') || root.child('rosters').child($classroomId).child(auth.uid).val() === true)",
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid && ((root.child('live').child($classroomId).child('teacherUid').val() === auth.uid && auth.token.role === 'teacher') || root.child('rosters').child($classroomId).child(auth.uid).val() === true)"
+        }
+      }
+    }
+  }
+}

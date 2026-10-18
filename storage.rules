@@ -1,0 +1,43 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function classroomTeacher(classroomId) {
+      return firestore.get(/databases/(default)/documents/classrooms/$(classroomId)).data.teacherUid;
+    }
+
+    function isMember(classroomId) {
+      return request.auth != null
+        && firestore.get(/databases/(default)/documents/classrooms/$(classroomId)/members/$(request.auth.uid)).data.accessStatus == 'active';
+    }
+
+    function isActiveTeacher(uid) {
+      return request.auth != null
+        && request.auth.uid == uid
+        && firestore.get(/databases/(default)/documents/users/$(uid)).data.role == 'teacher'
+        && firestore.get(/databases/(default)/documents/users/$(uid)).data.status == 'active';
+    }
+
+    // classrooms/{classroomId}/lessons/{lessonId}/pages/{pageId}/{fileName}
+    // Rendered slide images only. The *original* uploaded PDF/image is
+    // rendered client-side with PDF.js and only the rendered page images are
+    // ever stored — students can read them but never overwrite them.
+    match /classrooms/{classroomId}/lessons/{lessonId}/pages/{pageId}/{fileName} {
+      allow read: if request.auth != null && (
+        isActiveTeacher(classroomTeacher(classroomId))
+        || (isMember(classroomId)
+          && firestore.get(/databases/(default)/documents/classrooms/$(classroomId)).data.status == 'active'
+          && firestore.get(/databases/(default)/documents/classrooms/$(classroomId)/lessons/$(lessonId)).data.published == true)
+      );
+      allow write: if isActiveTeacher(classroomTeacher(classroomId))
+        && request.resource.size < 25 * 1024 * 1024
+        && request.resource.contentType.matches('image/(png|jpeg|webp)');
+      allow delete: if isActiveTeacher(classroomTeacher(classroomId));
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

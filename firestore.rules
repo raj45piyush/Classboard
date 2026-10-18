@@ -1,0 +1,498 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc(uid) {
+      return get(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && request.auth.token.role == 'admin'
+        && request.auth.token.email_verified == true
+        && userDoc(request.auth.uid).data.role == 'admin'
+        && userDoc(request.auth.uid).data.status == 'active';
+    }
+
+    function isActiveTeacher(uid) {
+      return isSignedIn()
+        && request.auth.uid == uid
+        && userDoc(uid).data.role == 'teacher'
+        && userDoc(uid).data.status == 'active';
+    }
+
+    function validNewTeacherProfile(uid) {
+      return request.auth.uid == uid
+        && (!('role' in request.auth.token) || request.auth.token.role == 'teacher')
+        && request.auth.token.email != null
+        && request.resource.data.keys().hasAll([
+          'uid', 'displayName', 'email', 'phoneNumber', 'phoneNumberVerified',
+          'authProvider', 'role', 'status', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'uid', 'displayName', 'email', 'phoneNumber', 'phoneNumberVerified',
+          'authProvider', 'role', 'status', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.uid == uid
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() >= 2
+        && request.resource.data.displayName.size() <= 80
+        && request.resource.data.email is string
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.phoneNumber is string
+        && request.resource.data.phoneNumber.matches('^\\+[1-9][0-9]{7,14}$')
+        && request.resource.data.phoneNumberVerified == false
+        && request.resource.data.authProvider in ['password', 'google.com']
+        && request.resource.data.authProvider == request.auth.token.firebase.sign_in_provider
+        && request.resource.data.role == 'teacher'
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validTeacherProfileUpdate(uid) {
+      return request.auth.uid == uid
+        && resource.data.uid == uid
+        && resource.data.role == 'teacher'
+        && resource.data.status == 'active'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName', 'phoneNumber', 'phoneNumberVerified', 'updatedAt'
+        ])
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.get('email', null) == resource.data.get('email', null)
+        && request.resource.data.get('invitedEmail', null) == resource.data.get('invitedEmail', null)
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.get('phoneNumberVerified', false) == false
+        && request.resource.data.get('authProvider', null) == resource.data.get('authProvider', null)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() >= 2
+        && request.resource.data.displayName.size() <= 80
+        && request.resource.data.phoneNumber is string
+        && request.resource.data.phoneNumber.matches('^\\+[1-9][0-9]{7,14}$')
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validAdminTeacherProfileUpdate(uid) {
+      return isAdmin()
+        && uid != request.auth.uid
+        && resource.data.uid == uid
+        && resource.data.role == 'teacher'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName', 'phoneNumber', 'updatedAt', 'status'
+        ])
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.get('invitedEmail', null) == resource.data.get('invitedEmail', null)
+        && request.resource.data.get('authProvider', null) == resource.data.get('authProvider', null)
+        && request.resource.data.get('phoneNumberVerified', false) == resource.data.get('phoneNumberVerified', false)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() >= 2
+        && request.resource.data.displayName.size() <= 80
+        && (request.resource.data.get('phoneNumber', null) == null
+          || (request.resource.data.get('phoneNumber', null) is string
+            && request.resource.data.get('phoneNumber', null).matches('^\\+[1-9][0-9]{7,14}$')))
+        && (request.resource.data.status == resource.data.status
+          || request.resource.data.status in ['active', 'disabled'])
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function classroomOwner(classroomId) {
+      return get(/databases/$(database)/documents/classrooms/$(classroomId)).data.teacherUid;
+    }
+
+    function classroomOwnerAfter(classroomId) {
+      return getAfter(/databases/$(database)/documents/classrooms/$(classroomId)).data.teacherUid;
+    }
+
+    function isClassroomMember(classroomId) {
+      return isSignedIn()
+        && get(/databases/$(database)/documents/classrooms/$(classroomId)/members/$(request.auth.uid)).data.accessStatus == 'active';
+    }
+
+    function validJoinCode(classroomId, codeHash) {
+      return codeHash is string
+        && codeHash.matches('^[a-f0-9]{64}$')
+        && get(/databases/$(database)/documents/joinCodes/$(codeHash)).data.classroomId == classroomId
+        && get(/databases/$(database)/documents/joinCodes/$(codeHash)).data.status == 'active'
+        && get(/databases/$(database)/documents/joinCodes/$(codeHash)).data.codeLength == 16
+        && get(/databases/$(database)/documents/classrooms/$(classroomId)).data.status == 'active';
+    }
+
+    function validMemberData(uid, classroomId) {
+      return request.resource.data.keys().hasOnly([
+          'sessionUid', 'displayName', 'joinCodeHash', 'accessStatus', 'joinedAt', 'lastSeenAt'
+        ])
+        && request.resource.data.sessionUid == uid
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() >= 1
+        && request.resource.data.displayName.size() <= 40
+        && request.resource.data.accessStatus == 'active'
+        && validJoinCode(classroomId, request.resource.data.joinCodeHash)
+        && request.resource.data.joinedAt == request.time
+        && request.resource.data.lastSeenAt == request.time;
+    }
+
+    function validPageSnapshot(data) {
+      return data.boardSnapshot == null
+        || (data.boardSnapshot is string && data.boardSnapshot.size() <= 800000);
+    }
+
+    function validPublishedSlide(classroomId, slideId, updating) {
+      return request.resource.data.keys().hasAll([
+          'id', 'slideId', 'classroomId', 'lessonId', 'title', 'order', 'pageNumber',
+          'pageType', 'boardSnapshot', 'slideStoragePath', 'sourceFileName', 'sourceMimeType',
+          'sourceVersion', 'createdBy', 'schemaVersion', 'lessonTitle', 'classroomTitle',
+          'teacherName', 'published', 'publishedBy', 'createdAt', 'publishedAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'id', 'slideId', 'classroomId', 'lessonId', 'title', 'order', 'pageNumber',
+          'pageType', 'boardSnapshot', 'slideStoragePath', 'sourceFileName', 'sourceMimeType',
+          'sourceVersion', 'createdBy', 'schemaVersion', 'lessonTitle', 'classroomTitle',
+          'teacherName', 'published', 'publishedBy', 'createdAt', 'publishedAt', 'updatedAt'
+        ])
+        && request.resource.data.id == slideId
+        && request.resource.data.slideId == slideId
+        && request.resource.data.classroomId == classroomId
+        && request.resource.data.lessonId is string
+        && request.resource.data.lessonId.size() > 0
+        && exists(/databases/$(database)/documents/classrooms/$(classroomId)/lessons/$(request.resource.data.lessonId)/pages/$(slideId))
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 100
+        && request.resource.data.order is int
+        && request.resource.data.order > 0
+        && request.resource.data.pageNumber == request.resource.data.order
+        && request.resource.data.pageType in ['board', 'slide']
+        && validPageSnapshot(request.resource.data)
+        && (request.resource.data.slideStoragePath == null || request.resource.data.slideStoragePath is string)
+        && (request.resource.data.sourceFileName == null || (request.resource.data.sourceFileName is string && request.resource.data.sourceFileName.size() <= 200))
+        && (request.resource.data.sourceMimeType == null || request.resource.data.sourceMimeType in ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'])
+        && request.resource.data.sourceVersion is int
+        && request.resource.data.sourceVersion >= 0
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.schemaVersion is int
+        && request.resource.data.lessonTitle is string
+        && request.resource.data.lessonTitle.size() <= 80
+        && request.resource.data.classroomTitle is string
+        && request.resource.data.classroomTitle.size() <= 100
+        && request.resource.data.teacherName is string
+        && request.resource.data.teacherName.size() <= 80
+        && request.resource.data.published == true
+        && request.resource.data.publishedBy == request.auth.uid
+        && request.resource.data.publishedAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && (updating
+          ? request.resource.data.createdAt == resource.data.createdAt
+          : request.resource.data.createdAt == request.time);
+    }
+
+    function validNewPage(classroomId, lessonId, pageId) {
+      return request.resource.data.keys().hasAll([
+          'id', 'classroomId', 'lessonId', 'title', 'order', 'pageNumber', 'pageType',
+          'boardSnapshot', 'slideStoragePath', 'sourceFileName', 'sourceMimeType', 'version', 'createdAt', 'updatedAt',
+          'createdBy', 'schemaVersion', 'savedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'id', 'classroomId', 'lessonId', 'title', 'order', 'pageNumber', 'pageType',
+          'boardSnapshot', 'slideStoragePath', 'sourceFileName', 'sourceMimeType', 'version', 'createdAt', 'updatedAt',
+          'createdBy', 'schemaVersion', 'savedAt'
+        ])
+        && request.resource.data.id == pageId
+        && request.resource.data.classroomId == classroomId
+        && request.resource.data.lessonId == lessonId
+        && request.resource.data.title is string
+        && request.resource.data.title.size() >= 1
+        && request.resource.data.title.size() <= 100
+        && request.resource.data.order is int
+        && request.resource.data.order > 0
+        && request.resource.data.pageNumber == request.resource.data.order
+        && request.resource.data.pageType in ['board', 'slide']
+        && validPageSnapshot(request.resource.data)
+        && (request.resource.data.slideStoragePath == null || request.resource.data.slideStoragePath is string)
+        && (request.resource.data.sourceFileName == null || (request.resource.data.sourceFileName is string && request.resource.data.sourceFileName.size() <= 200))
+        && (request.resource.data.sourceMimeType == null || request.resource.data.sourceMimeType in ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'])
+        && request.resource.data.version == 0
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.savedAt == request.time;
+    }
+
+    function validPageUpdate(classroomId, lessonId, pageId) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'title', 'order', 'pageNumber', 'boardSnapshot', 'version', 'updatedAt', 'savedAt'
+        ])
+        && request.resource.data.get('id', pageId) == resource.data.get('id', pageId)
+        && request.resource.data.get('classroomId', classroomId) == classroomId
+        && resource.data.get('classroomId', classroomId) == classroomId
+        && request.resource.data.get('lessonId', lessonId) == lessonId
+        && resource.data.get('lessonId', lessonId) == lessonId
+        && request.resource.data.get('createdBy', null) == resource.data.get('createdBy', null)
+        && request.resource.data.get('createdAt', resource.data.get('createdAt', resource.data.get('savedAt', null)))
+          == resource.data.get('createdAt', resource.data.get('savedAt', null))
+        && request.resource.data.get('schemaVersion', 0) == resource.data.get('schemaVersion', 0)
+        && request.resource.data.get('pageType', 'board') == resource.data.get('pageType', 'board')
+        && request.resource.data.get('slideStoragePath', null) == resource.data.get('slideStoragePath', null)
+        && request.resource.data.get('sourceFileName', null) == resource.data.get('sourceFileName', null)
+        && request.resource.data.get('sourceMimeType', null) == resource.data.get('sourceMimeType', null)
+        && request.resource.data.get('order', request.resource.data.get('pageNumber', 0)) is int
+        && request.resource.data.get('order', request.resource.data.get('pageNumber', 0)) > 0
+        && request.resource.data.get('pageNumber', request.resource.data.get('order', 0))
+          == request.resource.data.get('order', request.resource.data.get('pageNumber', 0))
+        && request.resource.data.get('title', resource.data.get('title', 'Slide')) is string
+        && request.resource.data.get('title', resource.data.get('title', 'Slide')).size() <= 100
+        && validPageSnapshot(request.resource.data)
+        && request.resource.data.get('version', resource.data.get('version', 0)) is int
+        && request.resource.data.get('version', resource.data.get('version', 0)) >= resource.data.get('version', 0)
+        && request.resource.data.get('updatedAt', null) == request.time
+        && (request.resource.data.get('savedAt', resource.data.get('savedAt', null))
+          == resource.data.get('savedAt', null)
+          || request.resource.data.get('savedAt', null) == request.time);
+    }
+
+    function validPrivateJoinCode(classroomId) {
+      let codeHash = request.resource.data.codeHash;
+      return request.resource.data.keys().hasAll(['code', 'codeHash', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['code', 'codeHash', 'updatedAt'])
+        && request.resource.data.code is string
+        && request.resource.data.code.matches('^[A-HJ-NP-Z2-9]{16}$')
+        && codeHash is string
+        && codeHash.matches('^[a-f0-9]{64}$')
+        && request.resource.data.updatedAt == request.time
+        && getAfter(/databases/$(database)/documents/classrooms/$(classroomId)).data.joinCodeHash == codeHash
+        && getAfter(/databases/$(database)/documents/joinCodes/$(codeHash)).data.classroomId == classroomId
+        && getAfter(/databases/$(database)/documents/joinCodes/$(codeHash)).data.status == 'active'
+        && getAfter(/databases/$(database)/documents/joinCodes/$(codeHash)).data.codeLength == 16;
+    }
+
+    function validNewLesson(classroomId) {
+      return request.resource.data.keys().hasAll([
+          'classroomId', 'title', 'description', 'boardMode', 'pageCount', 'published',
+          'teacherUid', 'classroomTitle', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'classroomId', 'title', 'description', 'boardMode', 'pageCount', 'published',
+          'teacherUid', 'classroomTitle', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.classroomId == classroomId
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 80
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 300
+        && request.resource.data.boardMode in ['blank', 'slides']
+        && request.resource.data.pageCount == 0
+        && request.resource.data.published == false
+        && request.resource.data.teacherUid == request.auth.uid
+        && request.resource.data.classroomTitle is string
+        && request.resource.data.classroomTitle.size() <= 100
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validLessonUpdate(classroomId) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'title', 'description', 'pageCount', 'published', 'updatedAt'
+        ])
+        && request.resource.data.get('classroomId', classroomId) == classroomId
+        && request.resource.data.get('teacherUid', request.auth.uid) == request.auth.uid
+        && request.resource.data.get('boardMode', 'blank') == resource.data.get('boardMode', 'blank')
+        && request.resource.data.get('classroomTitle', '') == resource.data.get('classroomTitle', '')
+        && request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null)
+        && request.resource.data.get('title', resource.data.get('title', '')) is string
+        && request.resource.data.get('title', resource.data.get('title', '')).size() > 0
+        && request.resource.data.get('title', resource.data.get('title', '')).size() <= 80
+        && request.resource.data.get('description', resource.data.get('description', '')) is string
+        && request.resource.data.get('description', resource.data.get('description', '')).size() <= 300
+        && request.resource.data.get('pageCount', resource.data.get('pageCount', 0)) is int
+        && request.resource.data.get('pageCount', resource.data.get('pageCount', 0)) >= 0
+        && request.resource.data.get('published', resource.data.get('published', false)) is bool
+        && request.resource.data.get('updatedAt', null) == request.time;
+    }
+
+    // ---- Users / role assignment ----
+    // Admin profiles are created/managed only by trusted Admin SDK code.
+    // Self-registration can create only an immutable-role, active teacher profile.
+    match /users/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if isSignedIn() && validNewTeacherProfile(uid);
+      allow update: if isSignedIn() && (validTeacherProfileUpdate(uid) || validAdminTeacherProfileUpdate(uid));
+      allow delete: if false;
+    }
+
+    // ---- Classrooms ----
+    match /classrooms/{classroomId} {
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.teacherUid == request.auth.uid && isActiveTeacher(request.auth.uid))
+        || isClassroomMember(classroomId);
+      allow create: if isActiveTeacher(request.resource.data.teacherUid);
+      allow update: if isAdmin() || (isActiveTeacher(resource.data.teacherUid)
+        && request.resource.data.teacherUid == resource.data.teacherUid);
+      allow delete: if isAdmin();
+
+      match /lessons/{lessonId} {
+        allow read: if isAdmin()
+          || isActiveTeacher(classroomOwner(classroomId))
+          || (isClassroomMember(classroomId)
+            && get(/databases/$(database)/documents/classrooms/$(classroomId)).data.status == 'active'
+            && resource.data.published == true);
+        allow create: if isActiveTeacher(classroomOwner(classroomId))
+          && validNewLesson(classroomId);
+        allow update: if isActiveTeacher(classroomOwner(classroomId))
+          && resource.data.get('teacherUid', request.auth.uid) == request.auth.uid
+          && validLessonUpdate(classroomId);
+        allow delete: if isActiveTeacher(classroomOwner(classroomId));
+
+        match /pages/{pageId} {
+          allow read: if isAdmin()
+            || isActiveTeacher(classroomOwner(classroomId))
+            || (isClassroomMember(classroomId)
+              && get(/databases/$(database)/documents/classrooms/$(classroomId)).data.status == 'active'
+              && get(/databases/$(database)/documents/classrooms/$(classroomId)/lessons/$(lessonId)).data.published == true);
+          allow create: if isActiveTeacher(classroomOwner(classroomId))
+            && validNewPage(classroomId, lessonId, pageId);
+          allow update: if isActiveTeacher(classroomOwner(classroomId))
+            && validPageUpdate(classroomId, lessonId, pageId);
+          allow delete: if isActiveTeacher(classroomOwner(classroomId));
+        }
+      }
+
+      // Published snapshots are separate from private working pages. Stable
+      // page IDs make publishing idempotent while drafts remain unreadable.
+      match /publishedSlides/{slideId} {
+        allow read: if isAdmin()
+          || isActiveTeacher(classroomOwner(classroomId))
+          || (isClassroomMember(classroomId)
+            && get(/databases/$(database)/documents/classrooms/$(classroomId)).data.status == 'active'
+            && resource.data.published == true);
+        allow create: if isActiveTeacher(classroomOwner(classroomId))
+          && get(/databases/$(database)/documents/classrooms/$(classroomId)).data.status == 'active'
+          && validPublishedSlide(classroomId, slideId, false);
+        allow update: if isActiveTeacher(classroomOwner(classroomId))
+          && get(/databases/$(database)/documents/classrooms/$(classroomId)).data.status == 'active'
+          && validPublishedSlide(classroomId, slideId, true);
+        allow delete: if isActiveTeacher(classroomOwner(classroomId));
+      }
+
+      // Plain-text share code is needed by the owner to share/recover it, but
+      // is never readable by classroom members or other signed-in users.
+      match /private/{privateDocumentId} {
+        allow get: if privateDocumentId == 'joinCode'
+          && isActiveTeacher(classroomOwner(classroomId));
+        allow list: if false;
+        allow create, update: if privateDocumentId == 'joinCode'
+          && isActiveTeacher(classroomOwnerAfter(classroomId))
+          && validPrivateJoinCode(classroomId);
+        allow delete: if false;
+      }
+
+      // Membership is created by a signed-in user only with proof of this
+      // classroom's active high-entropy join code; users can only leave/rejoin themselves.
+      match /members/{memberId} {
+        allow read: if isSignedIn()
+          && (request.auth.uid == memberId || isActiveTeacher(classroomOwner(classroomId)) || isAdmin());
+        // Self-enrollment requires the high-entropy code hash to resolve to this
+        // active classroom. The code document itself is never listable.
+        allow create: if isSignedIn() && request.auth.uid == memberId
+          && validMemberData(memberId, classroomId);
+        allow update: if isSignedIn() && request.auth.uid == memberId
+          && resource.data.sessionUid == memberId
+          && ((resource.data.accessStatus == 'active'
+              && validMemberData(memberId, classroomId))
+            || (resource.data.accessStatus == 'active'
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['accessStatus', 'lastSeenAt'])
+              && request.resource.data.accessStatus == 'left'
+              && request.resource.data.lastSeenAt == request.time)
+            || (resource.data.accessStatus == 'left'
+              && validMemberData(memberId, classroomId)));
+        allow delete: if false;
+      }
+
+      // Live state is stored in Firestore so authorization can use the same
+      // classroom ownership and membership records as persistent lessons.
+      match /live/{documentId} {
+        allow read: if isAdmin()
+          || isActiveTeacher(classroomOwner(classroomId))
+          || (isClassroomMember(classroomId)
+            && get(/databases/$(database)/documents/classrooms/$(classroomId)).data.status == 'active');
+        allow create, update: if isActiveTeacher(classroomOwner(classroomId))
+          && documentId == 'session'
+          && request.resource.data.keys().hasOnly([
+            'activeLessonId', 'activePageId', 'sharing', 'updatedAt', 'updatedBy'
+          ])
+          && request.resource.data.keys().hasAll([
+            'activeLessonId', 'activePageId', 'sharing', 'updatedAt', 'updatedBy'
+          ])
+          && (request.resource.data.activeLessonId == null || request.resource.data.activeLessonId is string)
+          && (request.resource.data.activePageId == null || request.resource.data.activePageId is string)
+          && request.resource.data.sharing is bool
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.updatedAt == request.time
+          && (request.resource.data.activeLessonId == null
+            || exists(/databases/$(database)/documents/classrooms/$(classroomId)/lessons/$(request.resource.data.activeLessonId)))
+          && (request.resource.data.activePageId == null
+            || (request.resource.data.activeLessonId != null
+              && exists(/databases/$(database)/documents/classrooms/$(classroomId)/lessons/$(request.resource.data.activeLessonId)/pages/$(request.resource.data.activePageId))));
+        allow delete: if isActiveTeacher(classroomOwner(classroomId));
+      }
+
+      match /livePages/{pageId} {
+        allow read: if isAdmin()
+          || isActiveTeacher(classroomOwner(classroomId))
+          || (isClassroomMember(classroomId)
+            && get(/databases/$(database)/documents/classrooms/$(classroomId)).data.status == 'active');
+        allow create, update: if isActiveTeacher(classroomOwner(classroomId))
+          && request.resource.data.keys().hasOnly(['lessonId', 'json', 'seq', 'updatedAt'])
+          && request.resource.data.lessonId is string
+          && exists(/databases/$(database)/documents/classrooms/$(classroomId)/lessons/$(request.resource.data.lessonId)/pages/$(pageId))
+          && request.resource.data.json is string
+          && request.resource.data.json.size() <= 850000
+          && request.resource.data.seq is number
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if isActiveTeacher(classroomOwner(classroomId));
+      }
+    }
+
+    // Collection-group queries must match a recursive path rule. This grants
+    // aggregate reads of any `members` collection only to trusted admins;
+    // the classroom-scoped rules above continue to govern member/self access
+    // and all client writes.
+    match /{path=**}/members/{memberId} {
+      allow read: if isAdmin();
+    }
+
+    // ---- Join codes ----
+    match /joinCodes/{hash} {
+      // An authenticated student can resolve only the hash they computed from
+      // the shared, high-entropy code. Collection enumeration stays denied.
+      allow get: if isSignedIn() && resource.data.status == 'active' && resource.data.codeLength == 16;
+      allow list: if false;
+      allow create: if isSignedIn()
+        && request.resource.data.codeLength == 16
+        && isActiveTeacher(classroomOwnerAfter(request.resource.data.classroomId));
+      allow update: if isSignedIn()
+        && isActiveTeacher(classroomOwner(resource.data.classroomId))
+        && request.resource.data.classroomId == resource.data.classroomId
+        && request.resource.data.codeLength == 16;
+      allow delete: if isSignedIn()
+        && isActiveTeacher(classroomOwner(resource.data.classroomId));
+    }
+
+    // ---- Activity log ----
+    // Trusted functions append activity records; clients can only read as admins.
+    match /activityLogs/{logId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+  }
+}
