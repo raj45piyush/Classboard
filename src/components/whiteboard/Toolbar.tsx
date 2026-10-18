@@ -13,6 +13,7 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize,
+  Move,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { PALETTE } from "@/constants/board";
@@ -37,7 +38,8 @@ interface ToolbarProps {
 
 const TOOLS: { id: ToolName; label: string; icon: typeof MousePointer2 }[] = [
   { id: "select", label: "Select", icon: MousePointer2 },
-  { id: "pen", label: "Pen", icon: Pencil },
+  { id: "pen", label: "Write", icon: Pencil },
+  { id: "move", label: "Move", icon: Move },
   { id: "eraser", label: "Eraser", icon: Eraser },
   { id: "text", label: "Text", icon: Type },
   { id: "line", label: "Line", icon: Minus },

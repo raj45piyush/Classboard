@@ -4,6 +4,7 @@
 import {
   doc,
   onSnapshot,
+  runTransaction,
   serverTimestamp,
   setDoc,
   type Unsubscribe,
@@ -56,22 +57,28 @@ export async function setSession(
 
 /** One compact board snapshot per completed Fabric operation, debounced by the caller. */
 export async function writeLiveSnapshot(classroomId: string, lessonId: string, pageId: string, json: string, seq: number) {
-  await setDoc(snapshotRef(classroomId, pageId), {
-    lessonId,
-    json,
-    seq,
-    updatedAt: serverTimestamp(),
+  const ref = snapshotRef(classroomId, pageId);
+  await runTransaction(db, async (transaction) => {
+    const current = await transaction.get(ref);
+    if (current.exists() && Number(current.data().seq ?? 0) >= seq) return;
+    transaction.set(ref, {
+      lessonId,
+      json,
+      seq,
+      updatedAt: serverTimestamp(),
+    });
   });
 }
 
 export function subscribeLiveSnapshot(
   classroomId: string,
   pageId: string,
-  cb: (json: string | null, serverConfirmed: boolean) => void,
+  cb: (json: string | null, serverConfirmed: boolean, seq: number) => void,
   onError?: (error: Error) => void
 ): Unsubscribe {
   return onSnapshot(snapshotRef(classroomId, pageId), { includeMetadataChanges: true }, (snapshot) => {
-    cb(snapshot.exists() ? snapshot.data().json ?? null : null, !snapshot.metadata.fromCache);
+    cb(snapshot.exists() ? snapshot.data().json ?? null : null, !snapshot.metadata.fromCache,
+      snapshot.exists() ? Number(snapshot.data().seq ?? 0) : 0);
   }, onError);
 }
 

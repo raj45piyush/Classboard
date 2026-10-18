@@ -19,10 +19,10 @@ import {
   type TPointerEventInfo,
   type TPointerEvent,
 } from "fabric";
-import { BOARD_WIDTH, BOARD_HEIGHT, MIN_ZOOM, MAX_ZOOM } from "@/constants/board";
+import { BOARD_WIDTH, BOARD_HEIGHT, BOARD_VIEW_HEIGHT, MIN_ZOOM, MAX_ZOOM } from "@/constants/board";
 import { parseBoardSnapshot, serializeBoard } from "@/utils/boardSerialization";
 
-export type ToolName = "select" | "pen" | "eraser" | "text" | "line" | "rect" | "circle" | "arrow";
+export type ToolName = "select" | "pen" | "move" | "eraser" | "text" | "line" | "rect" | "circle" | "arrow";
 
 export interface CanvasBoardHandle {
   loadFromJSON: (json: string | null) => Promise<void>;
@@ -51,9 +51,31 @@ interface CanvasBoardProps {
 const HISTORY_LIMIT = 60;
 
 export function calculateCanvasViewport(containerWidth: number, containerHeight: number, zoom = 1) {
-  const fitScale = Math.min(containerWidth / BOARD_WIDTH, containerHeight / BOARD_HEIGHT);
+  const fitScale = Math.min(containerWidth / BOARD_WIDTH, containerHeight / BOARD_VIEW_HEIGHT);
   const scale = fitScale * zoom;
   return { scale, width: BOARD_WIDTH * scale, height: BOARD_HEIGHT * scale };
+}
+
+export function viewportPointToScene(x: number, y: number, scale: number, offsetX = 0, offsetY = 0) {
+  return { x: (x - offsetX) / scale, y: (y - offsetY) / scale };
+}
+
+export type ViewportTransform = [number, number, number, number, number, number];
+
+export function translateViewportTransform(
+  transform: ViewportTransform,
+  deltaX: number,
+  deltaY: number
+): ViewportTransform {
+  return [transform[0], transform[1], transform[2], transform[3], transform[4] + deltaX, transform[5] + deltaY];
+}
+
+export function isPanTool(tool: ToolName) {
+  return tool === "move";
+}
+
+export function shouldCommitCanvasChange(readOnly: boolean, suppressed: boolean) {
+  return !readOnly && !suppressed;
 }
 
 export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(function CanvasBoard(
@@ -71,20 +93,30 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
   const drawingShapeRef = useRef<FabricObject | null>(null);
   const startPointRef = useRef<{ x: number; y: number } | null>(null);
   const erasingRef = useRef(false);
+  const panningRef = useRef<{ x: number; y: number } | null>(null);
+  const panOffsetRef = useRef({ x: 0, y: 0 });
   const zoomRef = useRef(1);
+  const loadGenerationRef = useRef(0);
+  const loadQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const onContentChangeRef = useRef(onContentChange);
+  const onHistoryChangeRef = useRef(onHistoryChange);
+  const onToolConsumedRef = useRef(onToolConsumed);
 
   toolRef.current = tool;
   colorRef.current = color;
   strokeWidthRef.current = strokeWidth;
+  onContentChangeRef.current = onContentChange;
+  onHistoryChangeRef.current = onHistoryChange;
+  onToolConsumedRef.current = onToolConsumed;
 
   const reportHistory = useCallback(() => {
     const { stack, index } = historyRef.current;
-    onHistoryChange?.({ canUndo: index > 0, canRedo: index < stack.length - 1 });
-  }, [onHistoryChange]);
+    onHistoryChangeRef.current?.({ canUndo: index > 0, canRedo: index < stack.length - 1 });
+  }, []);
 
   const pushHistory = useCallback(() => {
     const canvas = fabricRef.current;
-    if (!canvas || suppressRef.current) return;
+    if (!canvas || !shouldCommitCanvasChange(Boolean(readOnly), suppressRef.current)) return;
     const json = serializeBoard(canvas);
     const h = historyRef.current;
     if (h.index >= 0 && h.stack[h.index] === json) return;
@@ -93,8 +125,8 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
     if (next.length > HISTORY_LIMIT) next.shift();
     historyRef.current = { stack: next, index: next.length - 1 };
     reportHistory();
-    onContentChange?.(json);
-  }, [onContentChange, reportHistory]);
+    onContentChangeRef.current?.(json);
+  }, [readOnly, reportHistory]);
 
   const applyViewportScale = useCallback(() => {
     const canvas = fabricRef.current;
@@ -102,10 +134,15 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
     if (!canvas || !wrapper) return;
     const containerWidth = wrapper.clientWidth;
     const containerHeight = wrapper.clientHeight;
+    if (containerWidth <= 0 || containerHeight <= 0) return;
     const dimensions = calculateCanvasViewport(containerWidth, containerHeight, zoomRef.current);
     canvas.setDimensions({ width: dimensions.width, height: dimensions.height });
     const scale = dimensions.scale;
-    canvas.setViewportTransform([scale, 0, 0, scale, 0, 0]);
+    canvas.setViewportTransform([
+      scale, 0, 0, scale,
+      panOffsetRef.current.x * scale,
+      panOffsetRef.current.y * scale,
+    ]);
   }, []);
 
   // ---- init ----
@@ -135,6 +172,12 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
     canvas.on("mouse:down", (opt: TPointerEventInfo<TPointerEvent>) => {
       if (readOnly) return;
       const t = toolRef.current;
+      if (isPanTool(t)) {
+        const point = canvas.getViewportPoint(opt.e);
+        panningRef.current = { x: point.x, y: point.y };
+        canvas.defaultCursor = "grabbing";
+        return;
+      }
       const pointer = canvas.getScenePoint(opt.e);
 
       if (t === "text") {
@@ -147,7 +190,7 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
         canvas.add(text);
         canvas.setActiveObject(text);
         text.enterEditing();
-        onToolConsumed?.();
+        onToolConsumedRef.current?.();
         return;
       }
 
@@ -189,6 +232,18 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
     canvas.on("mouse:move", (opt: TPointerEventInfo<TPointerEvent>) => {
       if (readOnly) return;
       const t = toolRef.current;
+      if (isPanTool(t) && panningRef.current) {
+        const point = canvas.getViewportPoint(opt.e);
+        const previous = panningRef.current;
+        const scale = canvas.viewportTransform[0] || 1;
+        const dx = point.x - previous.x;
+        const dy = point.y - previous.y;
+        panOffsetRef.current.x += dx / scale;
+        panOffsetRef.current.y += dy / scale;
+        panningRef.current = point;
+        canvas.setViewportTransform(translateViewportTransform(canvas.viewportTransform, dx, dy));
+        return;
+      }
       const pointer = canvas.getScenePoint(opt.e);
 
       if (t === "eraser" && erasingRef.current) {
@@ -223,6 +278,11 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
 
     canvas.on("mouse:up", () => {
       if (readOnly) return;
+      if (panningRef.current) {
+        panningRef.current = null;
+        canvas.defaultCursor = toolRef.current === "move" ? "grab" : canvas.defaultCursor;
+        return;
+      }
       if (erasingRef.current) {
         erasingRef.current = false;
         return;
@@ -289,6 +349,10 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
     canvas.isDrawingMode = tool === "pen";
     canvas.selection = tool === "select";
     canvas.defaultCursor = tool === "eraser" ? "crosshair" : tool === "select" ? "default" : "crosshair";
+    if (tool === "move") canvas.defaultCursor = "grab";
+    const touchAction = tool === "select" ? "pan-y" : "none";
+    canvas.upperCanvasEl.style.touchAction = touchAction;
+    canvas.wrapperEl.style.touchAction = touchAction;
     canvas.forEachObject((obj) => {
       obj.selectable = tool === "select";
       obj.evented = tool === "select";
@@ -309,12 +373,22 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
   useImperativeHandle(
     ref,
     () => ({
-      loadFromJSON: (json) =>
-        new Promise<void>((resolve, reject) => {
+      loadFromJSON: (json) => {
+        const generation = ++loadGenerationRef.current;
+        const task = loadQueueRef.current.then(async () => {
+          if (generation !== loadGenerationRef.current) return;
           const canvas = fabricRef.current;
-          if (!canvas) return resolve();
+          if (!canvas) return;
           suppressRef.current = true;
-          const finish = () => {
+          try {
+            if (!json) {
+              canvas.clear();
+              canvas.backgroundColor = "#ffffff";
+            } else {
+              canvas.clear();
+              await canvas.loadFromJSON(parseBoardSnapshot(json));
+            }
+            if (generation !== loadGenerationRef.current) return;
             canvas.forEachObject((obj) => {
               obj.selectable = !readOnly && toolRef.current === "select";
               obj.evented = !readOnly && toolRef.current === "select";
@@ -322,26 +396,13 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
             canvas.requestRenderAll();
             historyRef.current = { stack: [serializeBoard(canvas)], index: 0 };
             reportHistory();
-            suppressRef.current = false;
-            resolve();
-          };
-          if (!json) {
-            canvas.clear();
-            canvas.backgroundColor = "#ffffff";
-            finish();
-            return;
+          } finally {
+            if (generation === loadGenerationRef.current) suppressRef.current = false;
           }
-          try {
-            const parsed = parseBoardSnapshot(json);
-            canvas.loadFromJSON(parsed).then(finish).catch((error) => {
-              suppressRef.current = false;
-              reject(error);
-            });
-          } catch (error) {
-            suppressRef.current = false;
-            reject(error);
-          }
-        }),
+        });
+        loadQueueRef.current = task.catch(() => undefined);
+        return task;
+      },
       exportJSON: () => (fabricRef.current ? serializeBoard(fabricRef.current) : "{}"),
       exportDataURL: () =>
         fabricRef.current?.toDataURL({ format: "png", quality: 1, multiplier: 2 }) ?? "",
@@ -355,7 +416,7 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
           canvas.requestRenderAll();
           suppressRef.current = false;
           reportHistory();
-          onContentChange?.(h.stack[h.index]);
+          onContentChangeRef.current?.(h.stack[h.index]);
         });
       },
       redo: () => {
@@ -368,7 +429,7 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
           canvas.requestRenderAll();
           suppressRef.current = false;
           reportHistory();
-          onContentChange?.(h.stack[h.index]);
+          onContentChangeRef.current?.(h.stack[h.index]);
         });
       },
       clearCanvas: () => {
@@ -408,15 +469,15 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
         canvas.requestRenderAll();
       },
     }),
-    [applyViewportScale, onContentChange, pushHistory, readOnly, reportHistory]
+    [applyViewportScale, pushHistory, readOnly, reportHistory]
   );
 
   return (
     <div
       ref={wrapperRef}
-      className="flex h-full w-full items-center justify-center overflow-auto bg-[#EEEEF0] p-3"
+      className="flex h-full w-full items-start justify-center overflow-auto bg-[#EEEEF0] p-3"
     >
-      <div className="border border-[#D9DADD] bg-white shadow-sm">
+      <div className="shrink-0 self-start border border-[#D9DADD] bg-white shadow-sm">
         <canvas ref={canvasElRef} />
       </div>
     </div>

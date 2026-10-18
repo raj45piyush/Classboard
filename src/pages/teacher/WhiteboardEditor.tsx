@@ -121,6 +121,12 @@ export default function WhiteboardEditor() {
   const didInitPages = useRef(false);
   const uploadAbortRef = useRef<AbortController | null>(null);
   const addingPageRef = useRef(false);
+  const liveSequenceRef = useRef(0);
+
+  const nextLiveSequence = () => {
+    liveSequenceRef.current = Math.max(Date.now(), liveSequenceRef.current + 1);
+    return liveSequenceRef.current;
+  };
 
   pagesRef.current = pages;
   sharingRef.current = sharing;
@@ -347,12 +353,12 @@ export default function WhiteboardEditor() {
   );
 
   const { debounced: debouncedLivePush, flushNow: flushLivePush } = useDebouncedCallback((json: string, pageId: string, liveClassroomId: string, liveLessonId: string) => {
-    return writeLiveSnapshot(liveClassroomId, liveLessonId, pageId, json, Date.now())
+    return writeLiveSnapshot(liveClassroomId, liveLessonId, pageId, json, nextLiveSequence())
       .then(() => setLiveError(null))
       .catch((error) => setLiveError(firebaseErrorCode(error) === "permission-denied"
         ? "Live board write was denied. Confirm classroom ownership and deploy the current Firestore rules."
         : "The live snapshot could not be sent. Check the connection and try sharing again."));
-  }, 400);
+  }, 180);
 
   const handleContentChange = useCallback(
     (json: string) => {
@@ -394,7 +400,7 @@ export default function WhiteboardEditor() {
         return;
       }
       if (next && activePageId && lessonId && boardRef.current) {
-        await writeLiveSnapshot(classroomId, lessonId, activePageId, boardRef.current.exportJSON(), Date.now());
+        await writeLiveSnapshot(classroomId, lessonId, activePageId, boardRef.current.exportJSON(), nextLiveSequence());
       }
       if (!next && activePageId && lessonId && boardRef.current) {
         await flushLivePush(boardRef.current.exportJSON(), activePageId, classroomId, lessonId);

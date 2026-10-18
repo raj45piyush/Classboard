@@ -50,6 +50,7 @@ export default function StudentClassroom() {
   const [clockNow, setClockNow] = useState(Date.now());
   const [session, setSessionState] = useState<LiveSessionState | null>(null);
   const [liveJson, setLiveJson] = useState<string | null>(null);
+  const [livePageId, setLivePageId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("live");
   const [presentationExpanded, setPresentationExpanded] = useState(false);
   const [lessons, setLessons] = useState<Lesson[]>([]);
@@ -72,6 +73,7 @@ export default function StudentClassroom() {
   const [offlineBundle, setOfflineBundle] = useState<StudentOfflineBundle | null>(null);
 
   const boardRef = useRef<CanvasBoardHandle>(null);
+  const lastLiveSnapshotRef = useRef<{ key: string; seq: number; json: string | null }>({ key: "", seq: -1, json: null });
 
   useEffect(() => {
     const online = () => {
@@ -106,6 +108,7 @@ export default function StudentClassroom() {
         setSelectedLessonId(lessonId);
         setPages(lessonId ? bundle.pagesByLesson[lessonId] ?? [] : []);
         setLiveJson(bundle.liveJson);
+        setLivePageId(bundle.session?.activePageId ?? null);
         setSessionState(bundle.session);
         setIsMember(true); // local display only; Firestore remains the authorization boundary for network access
         setSessionReady(true);
@@ -181,12 +184,20 @@ export default function StudentClassroom() {
     if (!classId || !session?.sharing || !session.activePageId || offlineViewing || !isOnline) {
       return;
     }
-    return subscribeLiveSnapshot(classId, session.activePageId, (json, serverConfirmed) => {
-      setLiveJson(json);
+    const snapshotKey = `${classId}:${session.activePageId}`;
+    if (lastLiveSnapshotRef.current.key !== snapshotKey) {
+      lastLiveSnapshotRef.current = { key: snapshotKey, seq: -1, json: null };
+    }
+    return subscribeLiveSnapshot(classId, session.activePageId, (json, serverConfirmed, seq) => {
       if (serverConfirmed) {
         setConnected(true);
         setContentError(null);
       }
+      const previous = lastLiveSnapshotRef.current;
+      if (previous.key === snapshotKey && (seq < previous.seq || (seq === previous.seq && json === previous.json))) return;
+      lastLiveSnapshotRef.current = { key: snapshotKey, seq, json };
+      setLiveJson(json);
+      setLivePageId(session.activePageId);
     }, (error) => {
       setContentError(firebaseErrorCode(error) === "permission-denied"
         ? "You are not authorized to read this live board. Check that you joined this classroom."
@@ -196,9 +207,9 @@ export default function StudentClassroom() {
 
   useEffect(() => {
     if (viewMode === "live") {
-      boardRef.current?.loadFromJSON(liveJson);
+      boardRef.current?.loadFromJSON(livePageId === session?.activePageId ? liveJson : null);
     }
-  }, [liveJson, viewMode]);
+  }, [liveJson, livePageId, viewMode, session?.activePageId]);
 
   useEffect(() => {
     if (!classId || !isMember) return;
