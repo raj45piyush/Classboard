@@ -46,7 +46,7 @@ interface ToolbarProps {
 
 const TOOLS: { id: ToolName; label: string; icon: typeof MousePointer2 }[] = [
   { id: "select", label: "Select", icon: MousePointer2 },
-  { id: "pen", label: "Write", icon: Pencil },
+  { id: "pen", label: "Pen", icon: Pencil },
   { id: "move", label: "Move", icon: Move },
   { id: "eraser", label: "Eraser", icon: Eraser },
   { id: "text", label: "Text", icon: Type },

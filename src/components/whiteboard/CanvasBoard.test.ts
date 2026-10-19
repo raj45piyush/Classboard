@@ -12,9 +12,19 @@ describe("responsive Fabric canvas viewport", () => {
     const withSidebar = calculateCanvasViewport(600, 500);
     const sidebarCollapsed = calculateCanvasViewport(900, 500);
     expect(withSidebar.width).toBe(600);
+    expect(withSidebar.width).toBeCloseTo(600);
     expect(sidebarCollapsed.width).toBeGreaterThan(withSidebar.width);
+    expect(sidebarCollapsed.width).toBeCloseTo(900);
+    expect(sidebarCollapsed.width / withSidebar.width).toBeCloseTo(1.5);
     expect(sidebarCollapsed.height).toBeGreaterThan(500);
     expect(sidebarCollapsed.height / sidebarCollapsed.width).toBeCloseTo(2160 / 1280);
+  });
+
+  it("keeps the board width-driven on wide layouts while preserving the tall scrollable work surface", () => {
+    const viewport = calculateCanvasViewport(1600, 520);
+    expect(viewport.width).toBe(1600);
+    expect(viewport.height).toBe(2700);
+    expect(viewport.height).toBeGreaterThan(520);
   });
 
   it("keeps the board aspect ratio and applies user zoom without changing saved coordinates", () => {

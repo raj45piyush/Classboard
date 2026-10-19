@@ -48,7 +48,6 @@ import { CanvasBoard, type CanvasBoardHandle, type ToolName } from "@/components
 import { Toolbar } from "@/components/whiteboard/Toolbar";
 import type { ShapePreset } from "@/components/whiteboard/mathShapes";
 import { PageList } from "@/components/whiteboard/PageList";
-import { BoardDetailsPanel } from "@/components/whiteboard/BoardDetailsPanel";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Spinner } from "@/components/ui/Spinner";
@@ -64,7 +63,7 @@ function initialEditorLayout() {
   const smallViewport = typeof window !== "undefined"
     && window.matchMedia?.("(max-width: 640px)").matches;
   return smallViewport
-    ? { ...initialWhiteboardLayout, pagesCollapsed: true, detailsSidebarCollapsed: true }
+    ? { ...initialWhiteboardLayout, pagesCollapsed: true }
     : initialWhiteboardLayout;
 }
 
@@ -791,6 +790,26 @@ export default function WhiteboardEditor() {
         </div>
       </div>
 
+      <Toolbar
+        tool={tool}
+        onToolChange={setTool}
+        color={color}
+        onColorChange={setColor}
+        strokeWidth={strokeWidth}
+        onStrokeWidthChange={setStrokeWidth}
+        canUndo={history.canUndo}
+        canRedo={history.canRedo}
+        onUndo={() => boardRef.current?.undo()}
+        onRedo={() => boardRef.current?.redo()}
+        onClear={() => setConfirmClear(true)}
+        onZoomIn={() => boardRef.current?.zoomIn()}
+        onZoomOut={() => boardRef.current?.zoomOut()}
+        onFitToScreen={() => boardRef.current?.fitToScreen()}
+        onAddShape={(preset: ShapePreset, fill?: string) => boardRef.current?.addShape(preset, fill)}
+        onAddTable={(rows, columns) => boardRef.current?.addTable(rows, columns)}
+        onAddMathText={(value) => boardRef.current?.addMathText(value)}
+      />
+
       {!workspaceLayout.mainToolbarHidden && <div className="flex flex-wrap items-center justify-end gap-2 border-b border-[#D9DADD] bg-white px-4 py-2">
           <input
             ref={fileInputRef}
@@ -888,27 +907,7 @@ export default function WhiteboardEditor() {
         </div>
       )}
 
-      <Toolbar
-        tool={tool}
-        onToolChange={setTool}
-        color={color}
-        onColorChange={setColor}
-        strokeWidth={strokeWidth}
-        onStrokeWidthChange={setStrokeWidth}
-        canUndo={history.canUndo}
-        canRedo={history.canRedo}
-        onUndo={() => boardRef.current?.undo()}
-        onRedo={() => boardRef.current?.redo()}
-        onClear={() => setConfirmClear(true)}
-        onZoomIn={() => boardRef.current?.zoomIn()}
-        onZoomOut={() => boardRef.current?.zoomOut()}
-        onFitToScreen={() => boardRef.current?.fitToScreen()}
-        onAddShape={(preset: ShapePreset, fill?: string) => boardRef.current?.addShape(preset, fill)}
-        onAddTable={(rows, columns) => boardRef.current?.addTable(rows, columns)}
-        onAddMathText={(value) => boardRef.current?.addMathText(value)}
-      />
-
-      <div className="flex min-h-0 flex-1">
+      <div data-testid="whiteboard-workspace" className="flex min-h-0 w-full min-w-0 flex-1">
         {!workspaceLayout.pagesCollapsed && !workspaceLayout.maximized && <PageList
           key="pages-sidebar"
           pages={pages}
@@ -921,7 +920,7 @@ export default function WhiteboardEditor() {
           onCollapse={() => dispatchLayout({ type: "toggle-pages" })}
           addingPage={addingPage}
         />}
-        <div key="board-pane" className="min-w-0 flex-1">
+        <div key="board-pane" data-testid="whiteboard-board-pane" className="flex min-h-0 min-w-0 flex-1 flex-col">
           {!activePage && workspaceLayout.pagesCollapsed && !workspaceLayout.maximized && <div className="border-b border-[#D9DADD] bg-white px-3 py-2"><button type="button" aria-label="Expand Pages sidebar" onClick={() => dispatchLayout({ type: "toggle-pages" })} className="flex items-center gap-1 rounded px-2 py-1 text-xs text-[#303238] hover:bg-[#F5F5F5]"><PanelLeftOpen className="h-4 w-4" />Pages</button></div>}
           {activePage && <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#D9DADD] bg-white px-3 py-2">
             <div className="flex min-w-0 items-center gap-2 text-xs text-[#747780]">
@@ -951,14 +950,6 @@ export default function WhiteboardEditor() {
             />
           )}
         </div>
-        <BoardDetailsPanel
-          collapsed={workspaceLayout.detailsSidebarCollapsed}
-          onToggle={() => dispatchLayout({ type: "toggle-details-sidebar" })}
-          page={activePage}
-          pageNumber={activePageIndex + 1}
-          pageCount={pages.length}
-          saveState={saveStatus}
-        />
       </div>
 
       <ConfirmDialog

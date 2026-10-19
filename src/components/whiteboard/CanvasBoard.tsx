@@ -19,7 +19,7 @@ import {
   type TPointerEventInfo,
   type TPointerEvent,
 } from "fabric";
-import { BOARD_WIDTH, BOARD_HEIGHT, BOARD_VIEW_HEIGHT, MIN_ZOOM, MAX_ZOOM } from "@/constants/board";
+import { BOARD_WIDTH, BOARD_HEIGHT, MIN_ZOOM, MAX_ZOOM } from "@/constants/board";
 import { parseBoardSnapshot, serializeBoard } from "@/utils/boardSerialization";
 import { createShapeObject, createTableObject, type ShapePreset } from "./mathShapes";
 
@@ -54,9 +54,10 @@ interface CanvasBoardProps {
 
 const HISTORY_LIMIT = 60;
 
-export function calculateCanvasViewport(containerWidth: number, containerHeight: number, zoom = 1) {
-  const fitScale = Math.min(containerWidth / BOARD_WIDTH, containerHeight / BOARD_VIEW_HEIGHT);
-  const scale = fitScale * zoom;
+export function calculateCanvasViewport(containerWidth: number, _containerHeight: number, zoom = 1) {
+  // The work surface is three logical view-heights tall and scrolls vertically.
+  // Fit to the pane width so a wide monitor does not leave unused space at right.
+  const scale = (containerWidth / BOARD_WIDTH) * zoom;
   return { scale, width: BOARD_WIDTH * scale, height: BOARD_HEIGHT * scale };
 }
 
@@ -136,7 +137,9 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
     const canvas = fabricRef.current;
     const wrapper = wrapperRef.current;
     if (!canvas || !wrapper) return;
-    const containerWidth = wrapper.clientWidth;
+    const wrapperStyle = window.getComputedStyle(wrapper);
+    const horizontalPadding = Number.parseFloat(wrapperStyle.paddingLeft) + Number.parseFloat(wrapperStyle.paddingRight);
+    const containerWidth = wrapper.clientWidth - horizontalPadding;
     const containerHeight = wrapper.clientHeight;
     if (containerWidth <= 0 || containerHeight <= 0) return;
     const dimensions = calculateCanvasViewport(containerWidth, containerHeight, zoomRef.current);
@@ -513,7 +516,7 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
   return (
     <div
       ref={wrapperRef}
-      className="flex h-full w-full items-start justify-center overflow-auto bg-[#EEEEF0] p-3"
+      className="flex min-h-0 min-w-0 flex-1 items-start justify-center overflow-auto bg-[#EEEEF0] p-2"
     >
       <div className="shrink-0 self-start border border-[#D9DADD] bg-white shadow-sm">
         <canvas ref={canvasElRef} />
