@@ -16,7 +16,7 @@ interface PageListProps {
 
 export function PageList({ pages, activePageId, onSelect, onAdd, onDuplicate, onDelete, onMove, onCollapse, addingPage = false }: PageListProps) {
   return (
-    <div className="flex h-full w-56 flex-col border-r border-[#D9DADD] bg-white">
+    <div className="flex h-full w-40 shrink-0 flex-col border-r border-[#D9DADD] bg-white md:w-56">
       <div className="flex items-center justify-between border-b border-[#D9DADD] px-3 py-2">
         <div className="flex items-center gap-1">
           <span className="text-xs font-semibold uppercase tracking-wide text-[#747780]">Pages</span>

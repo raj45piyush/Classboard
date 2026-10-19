@@ -46,7 +46,9 @@ import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import type { Classroom, Lesson, LessonPage, LiveSessionState } from "@/types";
 import { CanvasBoard, type CanvasBoardHandle, type ToolName } from "@/components/whiteboard/CanvasBoard";
 import { Toolbar } from "@/components/whiteboard/Toolbar";
+import type { ShapePreset } from "@/components/whiteboard/mathShapes";
 import { PageList } from "@/components/whiteboard/PageList";
+import { BoardDetailsPanel } from "@/components/whiteboard/BoardDetailsPanel";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Spinner } from "@/components/ui/Spinner";
@@ -58,11 +60,19 @@ import { initialWhiteboardLayout, whiteboardLayoutReducer } from "@/pages/teache
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 type PublishScope = "slide" | "presentation";
 
+function initialEditorLayout() {
+  const smallViewport = typeof window !== "undefined"
+    && window.matchMedia?.("(max-width: 640px)").matches;
+  return smallViewport
+    ? { ...initialWhiteboardLayout, pagesCollapsed: true, detailsSidebarCollapsed: true }
+    : initialWhiteboardLayout;
+}
+
 export default function WhiteboardEditor() {
   const { classroomId, lessonId } = useParams<{ classroomId: string; lessonId: string }>();
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const [workspaceLayout, dispatchLayout] = useReducer(whiteboardLayoutReducer, initialWhiteboardLayout);
+  const [workspaceLayout, dispatchLayout] = useReducer(whiteboardLayoutReducer, undefined, initialEditorLayout);
 
   const [classroom, setClassroom] = useState<Classroom | null | undefined>(undefined);
   const [lesson, setLesson] = useState<Lesson | null | undefined>(undefined);
@@ -893,6 +903,9 @@ export default function WhiteboardEditor() {
         onZoomIn={() => boardRef.current?.zoomIn()}
         onZoomOut={() => boardRef.current?.zoomOut()}
         onFitToScreen={() => boardRef.current?.fitToScreen()}
+        onAddShape={(preset: ShapePreset, fill?: string) => boardRef.current?.addShape(preset, fill)}
+        onAddTable={(rows, columns) => boardRef.current?.addTable(rows, columns)}
+        onAddMathText={(value) => boardRef.current?.addMathText(value)}
       />
 
       <div className="flex min-h-0 flex-1">
@@ -938,6 +951,14 @@ export default function WhiteboardEditor() {
             />
           )}
         </div>
+        <BoardDetailsPanel
+          collapsed={workspaceLayout.detailsSidebarCollapsed}
+          onToggle={() => dispatchLayout({ type: "toggle-details-sidebar" })}
+          page={activePage}
+          pageNumber={activePageIndex + 1}
+          pageCount={pages.length}
+          saveState={saveStatus}
+        />
       </div>
 
       <ConfirmDialog

@@ -15,13 +15,23 @@ describe("whiteboard workspace layout", () => {
     const collapsed = whiteboardLayoutReducer(initialWhiteboardLayout, { type: "toggle-pages" });
     const maximized = whiteboardLayoutReducer(collapsed, { type: "toggle-maximized" });
     const restored = whiteboardLayoutReducer(maximized, { type: "restore" });
-    expect(maximized).toEqual({ pagesCollapsed: true, classroomToolbarHidden: false, mainToolbarHidden: false, maximized: true });
-    expect(restored).toEqual({ pagesCollapsed: true, classroomToolbarHidden: false, mainToolbarHidden: false, maximized: false });
+    expect(maximized).toEqual({ pagesCollapsed: true, detailsSidebarCollapsed: false, classroomToolbarHidden: false, mainToolbarHidden: false, maximized: true });
+    expect(restored).toEqual({ pagesCollapsed: true, detailsSidebarCollapsed: false, classroomToolbarHidden: false, mainToolbarHidden: false, maximized: false });
   });
 
   it("leaves the sidebar state untouched when maximize is toggled repeatedly", () => {
     const collapsed = { ...initialWhiteboardLayout, pagesCollapsed: true };
     expect(whiteboardLayoutReducer(collapsed, { type: "toggle-maximized" }).pagesCollapsed).toBe(true);
+  });
+
+  it("collapses and restores the right sidebar independently from Pages", () => {
+    const pagesHidden = whiteboardLayoutReducer(initialWhiteboardLayout, { type: "toggle-pages" });
+    const rightHidden = whiteboardLayoutReducer(pagesHidden, { type: "toggle-details-sidebar" });
+    expect(rightHidden).toMatchObject({ pagesCollapsed: true, detailsSidebarCollapsed: true });
+    const pagesRestored = whiteboardLayoutReducer(rightHidden, { type: "toggle-pages" });
+    expect(pagesRestored).toMatchObject({ pagesCollapsed: false, detailsSidebarCollapsed: true });
+    const rightRestored = whiteboardLayoutReducer(pagesRestored, { type: "toggle-details-sidebar" });
+    expect(rightRestored).toMatchObject({ pagesCollapsed: false, detailsSidebarCollapsed: false });
   });
 
   it("toggles the classroom toolbar independently of Pages and maximize state", () => {

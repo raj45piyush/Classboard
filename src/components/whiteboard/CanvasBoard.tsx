@@ -21,6 +21,7 @@ import {
 } from "fabric";
 import { BOARD_WIDTH, BOARD_HEIGHT, BOARD_VIEW_HEIGHT, MIN_ZOOM, MAX_ZOOM } from "@/constants/board";
 import { parseBoardSnapshot, serializeBoard } from "@/utils/boardSerialization";
+import { createShapeObject, createTableObject, type ShapePreset } from "./mathShapes";
 
 export type ToolName = "select" | "pen" | "move" | "eraser" | "text" | "line" | "rect" | "circle" | "arrow";
 
@@ -35,6 +36,9 @@ export interface CanvasBoardHandle {
   zoomOut: () => void;
   fitToScreen: () => void;
   setBackgroundImage: (url: string | null) => Promise<void>;
+  addShape: (preset: ShapePreset, fill?: string) => void;
+  addTable: (rows: number, columns: number) => void;
+  addMathText: (value: string) => void;
 }
 
 interface CanvasBoardProps {
@@ -467,6 +471,40 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
         img.set({ left: 0, top: 0, scaleX: scale, scaleY: scale, selectable: false, evented: false });
         canvas.backgroundImage = img;
         canvas.requestRenderAll();
+      },
+      addShape: (preset, fill) => {
+        const canvas = fabricRef.current;
+        if (!canvas || readOnly) return;
+        const center = viewportPointToScene(canvas.getWidth() / 2, canvas.getHeight() / 2, canvas.viewportTransform[0] || 1,
+          canvas.viewportTransform[4], canvas.viewportTransform[5]);
+        const object = createShapeObject(preset, { left: center.x - 110, top: center.y - 70, color: colorRef.current, fill, strokeWidth: strokeWidthRef.current });
+        canvas.add(object);
+        canvas.setActiveObject(object);
+        canvas.requestRenderAll();
+        pushHistory();
+      },
+      addTable: (rows, columns) => {
+        const canvas = fabricRef.current;
+        if (!canvas || readOnly) return;
+        const center = viewportPointToScene(canvas.getWidth() / 2, canvas.getHeight() / 2, canvas.viewportTransform[0] || 1,
+          canvas.viewportTransform[4], canvas.viewportTransform[5]);
+        const table = createTableObject(rows, columns, { left: center.x - Math.min(columns, 10) * 60, top: center.y - Math.min(rows, 12) * 24, color: colorRef.current });
+        canvas.add(table);
+        canvas.setActiveObject(table);
+        canvas.requestRenderAll();
+        pushHistory();
+      },
+      addMathText: (value) => {
+        const canvas = fabricRef.current;
+        if (!canvas || readOnly) return;
+        const center = viewportPointToScene(canvas.getWidth() / 2, canvas.getHeight() / 2, canvas.viewportTransform[0] || 1,
+          canvas.viewportTransform[4], canvas.viewportTransform[5]);
+        const text = new IText(value, { left: center.x - 40, top: center.y - 18, fontSize: 30, fill: colorRef.current });
+        canvas.add(text);
+        canvas.setActiveObject(text);
+        text.enterEditing();
+        canvas.requestRenderAll();
+        pushHistory();
       },
     }),
     [applyViewportScale, pushHistory, readOnly, reportHistory]
