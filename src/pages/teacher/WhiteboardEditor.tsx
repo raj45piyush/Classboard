@@ -48,6 +48,7 @@ import { CanvasBoard, type CanvasBoardHandle, type ToolName } from "@/components
 import { Toolbar } from "@/components/whiteboard/Toolbar";
 import type { ShapePreset } from "@/components/whiteboard/mathShapes";
 import { PageList } from "@/components/whiteboard/PageList";
+import { ToolsPanel } from "@/components/whiteboard/ToolsPanel";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Spinner } from "@/components/ui/Spinner";
@@ -63,7 +64,7 @@ function initialEditorLayout() {
   const smallViewport = typeof window !== "undefined"
     && window.matchMedia?.("(max-width: 640px)").matches;
   return smallViewport
-    ? { ...initialWhiteboardLayout, pagesCollapsed: true }
+    ? { ...initialWhiteboardLayout, pagesCollapsed: true, toolsCollapsed: true }
     : initialWhiteboardLayout;
 }
 
@@ -790,26 +791,6 @@ export default function WhiteboardEditor() {
         </div>
       </div>
 
-      <Toolbar
-        tool={tool}
-        onToolChange={setTool}
-        color={color}
-        onColorChange={setColor}
-        strokeWidth={strokeWidth}
-        onStrokeWidthChange={setStrokeWidth}
-        canUndo={history.canUndo}
-        canRedo={history.canRedo}
-        onUndo={() => boardRef.current?.undo()}
-        onRedo={() => boardRef.current?.redo()}
-        onClear={() => setConfirmClear(true)}
-        onZoomIn={() => boardRef.current?.zoomIn()}
-        onZoomOut={() => boardRef.current?.zoomOut()}
-        onFitToScreen={() => boardRef.current?.fitToScreen()}
-        onAddShape={(preset: ShapePreset, fill?: string) => boardRef.current?.addShape(preset, fill)}
-        onAddTable={(rows, columns) => boardRef.current?.addTable(rows, columns)}
-        onAddMathText={(value) => boardRef.current?.addMathText(value)}
-      />
-
       {!workspaceLayout.mainToolbarHidden && <div className="flex flex-wrap items-center justify-end gap-2 border-b border-[#D9DADD] bg-white px-4 py-2">
           <input
             ref={fileInputRef}
@@ -950,6 +931,31 @@ export default function WhiteboardEditor() {
             />
           )}
         </div>
+        <ToolsPanel
+          collapsed={workspaceLayout.toolsCollapsed}
+          onToggle={() => dispatchLayout({ type: "toggle-tools" })}
+        >
+          <Toolbar
+            orientation="vertical"
+            tool={tool}
+            onToolChange={setTool}
+            color={color}
+            onColorChange={setColor}
+            strokeWidth={strokeWidth}
+            onStrokeWidthChange={setStrokeWidth}
+            canUndo={history.canUndo}
+            canRedo={history.canRedo}
+            onUndo={() => boardRef.current?.undo()}
+            onRedo={() => boardRef.current?.redo()}
+            onClear={() => setConfirmClear(true)}
+            onZoomIn={() => boardRef.current?.zoomIn()}
+            onZoomOut={() => boardRef.current?.zoomOut()}
+            onFitToScreen={() => boardRef.current?.fitToScreen()}
+            onAddShape={(preset: ShapePreset, fill?: string) => boardRef.current?.addShape(preset, fill)}
+            onAddTable={(rows, columns) => boardRef.current?.addTable(rows, columns)}
+            onAddMathText={(value) => boardRef.current?.addMathText(value)}
+          />
+        </ToolsPanel>
       </div>
 
       <ConfirmDialog

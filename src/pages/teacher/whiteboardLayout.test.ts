@@ -7,6 +7,7 @@ describe("whiteboard workspace layout", () => {
     const collapsed = whiteboardLayoutReducer(initialWhiteboardLayout, { type: "toggle-pages" });
     const restored = whiteboardLayoutReducer(collapsed, { type: "toggle-pages" });
     expect(collapsed.pagesCollapsed).toBe(true);
+    expect(collapsed.toolsCollapsed).toBe(false);
     expect(restored.pagesCollapsed).toBe(false);
     expect(selectedPageId).toBe("slide-stable-1");
   });
@@ -21,13 +22,23 @@ describe("whiteboard workspace layout", () => {
     const collapsed = whiteboardLayoutReducer(initialWhiteboardLayout, { type: "toggle-pages" });
     const maximized = whiteboardLayoutReducer(collapsed, { type: "toggle-maximized" });
     const restored = whiteboardLayoutReducer(maximized, { type: "restore" });
-    expect(maximized).toEqual({ pagesCollapsed: true, classroomToolbarHidden: false, mainToolbarHidden: false, maximized: true });
-    expect(restored).toEqual({ pagesCollapsed: true, classroomToolbarHidden: false, mainToolbarHidden: false, maximized: false });
+    expect(maximized).toEqual({ pagesCollapsed: true, toolsCollapsed: false, classroomToolbarHidden: false, mainToolbarHidden: false, maximized: true });
+    expect(restored).toEqual({ pagesCollapsed: true, toolsCollapsed: false, classroomToolbarHidden: false, mainToolbarHidden: false, maximized: false });
   });
 
   it("leaves the sidebar state untouched when maximize is toggled repeatedly", () => {
     const collapsed = { ...initialWhiteboardLayout, pagesCollapsed: true };
     expect(whiteboardLayoutReducer(collapsed, { type: "toggle-maximized" }).pagesCollapsed).toBe(true);
+  });
+
+  it("collapses and restores Tools independently from Pages", () => {
+    const pagesHidden = whiteboardLayoutReducer(initialWhiteboardLayout, { type: "toggle-pages" });
+    const toolsHidden = whiteboardLayoutReducer(pagesHidden, { type: "toggle-tools" });
+    expect(toolsHidden).toMatchObject({ pagesCollapsed: true, toolsCollapsed: true });
+    const pagesRestored = whiteboardLayoutReducer(toolsHidden, { type: "toggle-pages" });
+    expect(pagesRestored).toMatchObject({ pagesCollapsed: false, toolsCollapsed: true });
+    const toolsRestored = whiteboardLayoutReducer(pagesRestored, { type: "toggle-tools" });
+    expect(toolsRestored).toMatchObject({ pagesCollapsed: false, toolsCollapsed: false });
   });
 
   it("toggles the classroom toolbar independently of Pages and maximize state", () => {

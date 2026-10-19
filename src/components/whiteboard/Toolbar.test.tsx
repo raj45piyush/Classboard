@@ -10,7 +10,7 @@ function renderToolbar() {
     onAddTable: vi.fn(), onAddMathText: vi.fn(),
   };
   const result = render(<Toolbar
-    tool="select" color="#303238" strokeWidth={3} canUndo onRedo={handlers.onRedo} canRedo
+    orientation="vertical" tool="select" color="#303238" strokeWidth={3} canUndo onRedo={handlers.onRedo} canRedo
     onToolChange={handlers.onToolChange} onColorChange={handlers.onColorChange}
     onStrokeWidthChange={handlers.onStrokeWidthChange} onUndo={handlers.onUndo}
     onClear={handlers.onClear} onZoomIn={handlers.onZoomIn} onZoomOut={handlers.onZoomOut}
@@ -23,6 +23,7 @@ function renderToolbar() {
 describe("compact whiteboard drawing toolbar", () => {
   it("renders one primary set of drawing controls and preserves tool selection", () => {
     const { handlers } = renderToolbar();
+    expect(screen.getByRole("toolbar", { name: "Whiteboard tools" })).toHaveAttribute("aria-orientation", "vertical");
     for (const label of ["Select", "Pen", "Move", "Eraser", "Text", "Line", "Rectangle", "Circle", "Arrow", "Mathematical shapes", "Insert table", "Math symbols"]) {
       expect(screen.getAllByRole("button", { name: label })).toHaveLength(1);
     }

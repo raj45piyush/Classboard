@@ -27,6 +27,20 @@ describe("responsive Fabric canvas viewport", () => {
     expect(viewport.height).toBeGreaterThan(520);
   });
 
+  it("recalculates the center canvas when either or both vertical sidebars collapse", () => {
+    const totalWidth = 1440;
+    const pagesWidth = 224;
+    const toolsWidth = 72;
+    const bothOpen = calculateCanvasViewport(totalWidth - pagesWidth - toolsWidth, 720);
+    const pagesCollapsed = calculateCanvasViewport(totalWidth - toolsWidth, 720);
+    const toolsCollapsed = calculateCanvasViewport(totalWidth - pagesWidth - 36, 720);
+    const bothCollapsed = calculateCanvasViewport(totalWidth - 36, 720);
+    expect(pagesCollapsed.width).toBeGreaterThan(bothOpen.width);
+    expect(toolsCollapsed.width).toBeGreaterThan(bothOpen.width);
+    expect(bothCollapsed.width).toBeGreaterThan(pagesCollapsed.width);
+    expect(bothCollapsed.width).toBe(totalWidth - 36);
+  });
+
   it("keeps the board aspect ratio and applies user zoom without changing saved coordinates", () => {
     const fitted = calculateCanvasViewport(1000, 600);
     const zoomed = calculateCanvasViewport(1000, 600, 1.5);
