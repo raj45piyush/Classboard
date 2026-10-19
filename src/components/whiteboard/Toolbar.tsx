@@ -9,11 +9,7 @@ import {
   Square,
   Circle as CircleIcon,
   ArrowUpRight,
-  Undo2,
-  Redo2,
   Trash2,
-  ZoomIn,
-  ZoomOut,
   Maximize,
   Move,
   Shapes,
@@ -33,14 +29,13 @@ interface ToolbarProps {
   onColorChange: (color: string) => void;
   strokeWidth: number;
   onStrokeWidthChange: (width: number) => void;
-  canUndo: boolean;
-  canRedo: boolean;
-  onUndo: () => void;
-  onRedo: () => void;
+  eraserSize: number;
+  onEraserSizeChange: (size: number) => void;
   onClear: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFitToScreen: () => void;
+  zoomPercent: number;
   onAddShape: (preset: ShapePreset, fill?: string) => void;
   onAddTable: (rows: number, columns: number) => void;
   onAddMathText: (value: string) => void;
@@ -102,14 +97,13 @@ export function Toolbar(props: ToolbarProps) {
     onColorChange,
     strokeWidth,
     onStrokeWidthChange,
-    canUndo,
-    canRedo,
-    onUndo,
-    onRedo,
+    eraserSize,
+    onEraserSizeChange,
     onClear,
     onZoomIn,
     onZoomOut,
     onFitToScreen,
+    zoomPercent,
     onAddShape,
     onAddTable,
     onAddMathText,
@@ -209,27 +203,37 @@ export function Toolbar(props: ToolbarProps) {
         />
       </div>
 
-      <div className={vertical ? "grid grid-cols-2 gap-1 border-b border-[#D9DADD] pb-2" : "flex items-center gap-1 border-r border-[#D9DADD] pr-2"}>
-        <ToolbarButton vertical={vertical} label="Undo" disabled={!canUndo} onClick={onUndo}>
-          <Undo2 className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton vertical={vertical} label="Redo" disabled={!canRedo} onClick={onRedo}>
-          <Redo2 className="h-4 w-4" />
-        </ToolbarButton>
+      {tool === "eraser" && <div className={vertical ? "flex flex-col items-center gap-1 border-b border-[#D9DADD] pb-2" : "flex items-center gap-2 border-r border-[#D9DADD] pr-2"}>
+        <label htmlFor="eraser-size" className="text-[10px] leading-tight text-[#747780]">Eraser {eraserSize}px</label>
+        <input
+          id="eraser-size"
+          type="range"
+          min={10}
+          max={60}
+          step={10}
+          value={eraserSize}
+          onChange={(e) => onEraserSizeChange(Number(e.target.value))}
+          className={vertical ? "h-20 w-4 accent-[#303238] [writing-mode:vertical-lr]" : "w-24 accent-[#303238]"}
+          style={vertical ? { direction: "rtl" } : undefined}
+        />
+      </div>}
+
+      <div className={vertical ? "flex flex-col items-center gap-1 border-b border-[#D9DADD] pb-2" : "flex items-center gap-1 border-r border-[#D9DADD] pr-2"}>
         <ToolbarButton vertical={vertical} label="Clear page" onClick={onClear}>
           <Trash2 className="h-4 w-4" />
         </ToolbarButton>
       </div>
 
-      <div className={vertical ? "grid grid-cols-3 gap-1" : "flex items-center gap-1"}>
+      <div className={vertical ? "flex flex-col items-center gap-1" : "flex items-center gap-1"}>
         <ToolbarButton vertical={vertical} label="Zoom out" onClick={onZoomOut}>
-          <ZoomOut className="h-4 w-4" />
+          <span aria-hidden="true" className="text-lg leading-none">−</span>
         </ToolbarButton>
+        <span aria-label={`Zoom ${zoomPercent}%`} className="min-w-10 text-center text-[11px] tabular-nums text-[#747780]">{zoomPercent}%</span>
         <ToolbarButton vertical={vertical} label="Fit to screen" onClick={onFitToScreen}>
           <Maximize className="h-4 w-4" />
         </ToolbarButton>
         <ToolbarButton vertical={vertical} label="Zoom in" onClick={onZoomIn}>
-          <ZoomIn className="h-4 w-4" />
+          <span aria-hidden="true" className="text-lg leading-none">+</span>
         </ToolbarButton>
       </div>
 

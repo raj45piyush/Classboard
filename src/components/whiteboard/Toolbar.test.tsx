@@ -2,17 +2,18 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Toolbar } from "./Toolbar";
 
-function renderToolbar() {
+function renderToolbar(tool: "select" | "eraser" = "select") {
   const handlers = {
     onToolChange: vi.fn(), onColorChange: vi.fn(), onStrokeWidthChange: vi.fn(),
-    onUndo: vi.fn(), onRedo: vi.fn(), onClear: vi.fn(), onZoomIn: vi.fn(),
+    onEraserSizeChange: vi.fn(),
+    onClear: vi.fn(), onZoomIn: vi.fn(),
     onZoomOut: vi.fn(), onFitToScreen: vi.fn(), onAddShape: vi.fn(),
     onAddTable: vi.fn(), onAddMathText: vi.fn(),
   };
   const result = render(<Toolbar
-    orientation="vertical" tool="select" color="#303238" strokeWidth={3} canUndo onRedo={handlers.onRedo} canRedo
+    orientation="vertical" tool={tool} color="#303238" strokeWidth={3} eraserSize={20} zoomPercent={125}
     onToolChange={handlers.onToolChange} onColorChange={handlers.onColorChange}
-    onStrokeWidthChange={handlers.onStrokeWidthChange} onUndo={handlers.onUndo}
+    onStrokeWidthChange={handlers.onStrokeWidthChange} onEraserSizeChange={handlers.onEraserSizeChange}
     onClear={handlers.onClear} onZoomIn={handlers.onZoomIn} onZoomOut={handlers.onZoomOut}
     onFitToScreen={handlers.onFitToScreen} onAddShape={handlers.onAddShape}
     onAddTable={handlers.onAddTable} onAddMathText={handlers.onAddMathText}
@@ -29,6 +30,9 @@ describe("compact whiteboard drawing toolbar", () => {
     }
     expect(screen.getByLabelText("Custom colour")).toBeInTheDocument();
     expect(screen.getByLabelText("Thickness")).toBeInTheDocument();
+    expect(screen.getByText("125%")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Redo" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Pen" }));
     expect(handlers.onToolChange).toHaveBeenCalledWith("pen");
   });
@@ -48,5 +52,14 @@ describe("compact whiteboard drawing toolbar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Math symbols" }));
     fireEvent.click(screen.getByRole("button", { name: "Insert π" }));
     expect(handlers.onAddMathText).toHaveBeenCalledWith("π");
+  });
+
+  it("shows a real brush-size control when Eraser is active", () => {
+    const { handlers } = renderToolbar("eraser");
+    expect(screen.getByText("Eraser 20px")).toBeInTheDocument();
+    const size = screen.getByLabelText("Eraser 20px");
+    expect(size).toHaveAttribute("type", "range");
+    fireEvent.change(size, { target: { value: "40" } });
+    expect(handlers.onEraserSizeChange).toHaveBeenCalledWith(40);
   });
 });

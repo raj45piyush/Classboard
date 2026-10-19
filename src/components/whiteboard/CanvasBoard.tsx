@@ -11,6 +11,7 @@ import {
   Rect,
   Circle,
   Line,
+  Path,
   Triangle,
   Group,
   IText,
@@ -50,6 +51,8 @@ interface CanvasBoardProps {
   onContentChange?: (json: string) => void;
   onHistoryChange?: (state: { canUndo: boolean; canRedo: boolean }) => void;
   onToolConsumed?: () => void;
+  onZoomChange?: (percent: number) => void;
+  eraserSize?: number;
 }
 
 const HISTORY_LIMIT = 60;
@@ -83,8 +86,69 @@ export function shouldCommitCanvasChange(readOnly: boolean, suppressed: boolean)
   return !readOnly && !suppressed;
 }
 
+export function getCanvasObjectInteraction(tool: ToolName, readOnly = false) {
+  if (readOnly) return { selectable: false, evented: false };
+  return {
+    selectable: tool === "select",
+    evented: tool === "select",
+  };
+}
+
+export function normalizedZoomPercent(zoom: number) {
+  return Math.round(zoom * 100);
+}
+
+export interface EraserPoint { x: number; y: number }
+
+export function getEraserSceneStrokeWidth(size: number, viewportScale: number) {
+  return Math.max(0.1, size / Math.max(viewportScale, 0.01));
+}
+
+export function createEraserCursor(size: number) {
+  const diameter = Math.max(10, Math.min(60, Math.round(size)));
+  const extent = diameter + 2;
+  const center = extent / 2;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${extent}" height="${extent}" viewBox="0 0 ${extent} ${extent}"><circle cx="${center}" cy="${center}" r="${diameter / 2}" fill="none" stroke="white" stroke-width="3"/><circle cx="${center}" cy="${center}" r="${diameter / 2}" fill="none" stroke="#303238" stroke-width="1"/></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${center} ${center}, crosshair`;
+}
+
+function eraserCommands(points: EraserPoint[]) {
+  const first = points[0] ?? { x: 0, y: 0 };
+  // A tiny round-capped segment makes a click erase a circular dab.
+  return [
+    ["M", first.x, first.y],
+    ...(points.length > 1 ? points.slice(1).map(({ x, y }) => ["L", x, y]) : [["L", first.x + 0.01, first.y]]),
+  ] as never;
+}
+
+export function createEraserPath(points: EraserPoint[], size: number, viewportScale: number) {
+  return new Path(eraserCommands(points), {
+    fill: "",
+    stroke: "#000000",
+    strokeWidth: getEraserSceneStrokeWidth(size, viewportScale),
+    strokeLineCap: "round",
+    strokeLineJoin: "round",
+    globalCompositeOperation: "destination-out",
+    selectable: false,
+    evented: false,
+    objectCaching: false,
+  });
+}
+
+export function updateEraserPath(path: Path, points: EraserPoint[]) {
+  path._setPath(eraserCommands(points), true);
+  path.dirty = true;
+  path.setCoords();
+}
+
+export function moveCanvasHistoryIndex(index: number, stackLength: number, direction: "undo" | "redo") {
+  return direction === "undo"
+    ? Math.max(0, index - 1)
+    : Math.min(stackLength - 1, index + 1);
+}
+
 export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(function CanvasBoard(
-  { tool, color, strokeWidth, readOnly, pageKey, onContentChange, onHistoryChange, onToolConsumed },
+  { tool, color, strokeWidth, readOnly, pageKey, onContentChange, onHistoryChange, onToolConsumed, onZoomChange, eraserSize = 20 },
   ref
 ) {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -93,11 +157,14 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
   const toolRef = useRef<ToolName>(tool);
   const colorRef = useRef(color);
   const strokeWidthRef = useRef(strokeWidth);
+  const eraserSizeRef = useRef(eraserSize);
   const historyRef = useRef<{ stack: string[]; index: number }>({ stack: [], index: -1 });
   const suppressRef = useRef(false);
   const drawingShapeRef = useRef<FabricObject | null>(null);
   const startPointRef = useRef<{ x: number; y: number } | null>(null);
   const erasingRef = useRef(false);
+  const eraserPathRef = useRef<Path | null>(null);
+  const eraserPointsRef = useRef<EraserPoint[]>([]);
   const panningRef = useRef<{ x: number; y: number } | null>(null);
   const panOffsetRef = useRef({ x: 0, y: 0 });
   const zoomRef = useRef(1);
@@ -106,13 +173,16 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
   const onContentChangeRef = useRef(onContentChange);
   const onHistoryChangeRef = useRef(onHistoryChange);
   const onToolConsumedRef = useRef(onToolConsumed);
+  const onZoomChangeRef = useRef(onZoomChange);
 
   toolRef.current = tool;
   colorRef.current = color;
   strokeWidthRef.current = strokeWidth;
+  eraserSizeRef.current = eraserSize;
   onContentChangeRef.current = onContentChange;
   onHistoryChangeRef.current = onHistoryChange;
   onToolConsumedRef.current = onToolConsumed;
+  onZoomChangeRef.current = onZoomChange;
 
   const reportHistory = useCallback(() => {
     const { stack, index } = historyRef.current;
@@ -203,10 +273,14 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
 
       if (t === "eraser") {
         erasingRef.current = true;
-        const target = canvas.findTarget(opt.e).target;
-        if (target) {
-          canvas.remove(target);
-        }
+        suppressRef.current = true;
+        const scale = canvas.viewportTransform[0] || 1;
+        const point = canvas.getScenePoint(opt.e);
+        eraserPointsRef.current = [{ x: point.x, y: point.y }];
+        const path = createEraserPath(eraserPointsRef.current, eraserSizeRef.current, scale);
+        eraserPathRef.current = path;
+        canvas.add(path);
+        canvas.requestRenderAll();
         return;
       }
 
@@ -254,8 +328,13 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
       const pointer = canvas.getScenePoint(opt.e);
 
       if (t === "eraser" && erasingRef.current) {
-        const target = canvas.findTarget(opt.e).target;
-        if (target) canvas.remove(target);
+        const previous = eraserPointsRef.current.at(-1);
+        if (!previous || Math.hypot(pointer.x - previous.x, pointer.y - previous.y) >= 0.5) {
+          eraserPointsRef.current.push({ x: pointer.x, y: pointer.y });
+          const eraserPath = eraserPathRef.current;
+          if (eraserPath) updateEraserPath(eraserPath, eraserPointsRef.current);
+          canvas.requestRenderAll();
+        }
         return;
       }
 
@@ -292,6 +371,11 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
       }
       if (erasingRef.current) {
         erasingRef.current = false;
+        suppressRef.current = false;
+        eraserPathRef.current = null;
+        eraserPointsRef.current = [];
+        pushHistory();
+        canvas.requestRenderAll();
         return;
       }
       const shape = drawingShapeRef.current;
@@ -356,13 +440,15 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
     canvas.isDrawingMode = tool === "pen";
     canvas.selection = tool === "select";
     canvas.defaultCursor = tool === "eraser" ? "crosshair" : tool === "select" ? "default" : "crosshair";
+    canvas.upperCanvasEl.style.cursor = tool === "eraser" && !readOnly ? createEraserCursor(eraserSize) : canvas.defaultCursor;
     if (tool === "move") canvas.defaultCursor = "grab";
     const touchAction = tool === "select" ? "pan-y" : "none";
     canvas.upperCanvasEl.style.touchAction = touchAction;
     canvas.wrapperEl.style.touchAction = touchAction;
+    const interaction = getCanvasObjectInteraction(tool, Boolean(readOnly));
     canvas.forEachObject((obj) => {
-      obj.selectable = tool === "select";
-      obj.evented = tool === "select";
+      obj.selectable = interaction.selectable;
+      obj.evented = interaction.evented;
     });
     if (canvas.freeDrawingBrush) {
       canvas.freeDrawingBrush.color = color;
@@ -370,7 +456,7 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
     }
     if (tool !== "select") canvas.discardActiveObject();
     canvas.requestRenderAll();
-  }, [tool, color, strokeWidth, readOnly]);
+  }, [tool, color, strokeWidth, readOnly, eraserSize]);
 
   // ---- page switching ----
   useEffect(() => {
@@ -397,8 +483,9 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
             }
             if (generation !== loadGenerationRef.current) return;
             canvas.forEachObject((obj) => {
-              obj.selectable = !readOnly && toolRef.current === "select";
-              obj.evented = !readOnly && toolRef.current === "select";
+              const interaction = getCanvasObjectInteraction(toolRef.current, Boolean(readOnly));
+              obj.selectable = interaction.selectable;
+              obj.evented = interaction.evented;
             });
             canvas.requestRenderAll();
             historyRef.current = { stack: [serializeBoard(canvas)], index: 0 };
@@ -416,8 +503,10 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
       undo: () => {
         const canvas = fabricRef.current;
         const h = historyRef.current;
-        if (!canvas || h.index <= 0) return;
-        h.index -= 1;
+        if (!canvas) return;
+        const nextIndex = moveCanvasHistoryIndex(h.index, h.stack.length, "undo");
+        if (nextIndex === h.index) return;
+        h.index = nextIndex;
         suppressRef.current = true;
         canvas.loadFromJSON(parseBoardSnapshot(h.stack[h.index])).then(() => {
           canvas.requestRenderAll();
@@ -429,8 +518,10 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
       redo: () => {
         const canvas = fabricRef.current;
         const h = historyRef.current;
-        if (!canvas || h.index >= h.stack.length - 1) return;
-        h.index += 1;
+        if (!canvas) return;
+        const nextIndex = moveCanvasHistoryIndex(h.index, h.stack.length, "redo");
+        if (nextIndex === h.index) return;
+        h.index = nextIndex;
         suppressRef.current = true;
         canvas.loadFromJSON(parseBoardSnapshot(h.stack[h.index])).then(() => {
           canvas.requestRenderAll();
@@ -452,14 +543,17 @@ export const CanvasBoard = forwardRef<CanvasBoardHandle, CanvasBoardProps>(funct
       zoomIn: () => {
         zoomRef.current = Math.min(MAX_ZOOM, zoomRef.current + 0.1);
         applyViewportScale();
+        onZoomChangeRef.current?.(normalizedZoomPercent(zoomRef.current));
       },
       zoomOut: () => {
         zoomRef.current = Math.max(MIN_ZOOM, zoomRef.current - 0.1);
         applyViewportScale();
+        onZoomChangeRef.current?.(normalizedZoomPercent(zoomRef.current));
       },
       fitToScreen: () => {
         zoomRef.current = 1;
         applyViewportScale();
+        onZoomChangeRef.current?.(100);
       },
       setBackgroundImage: async (url) => {
         const canvas = fabricRef.current;

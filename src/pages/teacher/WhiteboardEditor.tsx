@@ -49,6 +49,7 @@ import { Toolbar } from "@/components/whiteboard/Toolbar";
 import type { ShapePreset } from "@/components/whiteboard/mathShapes";
 import { PageList } from "@/components/whiteboard/PageList";
 import { ToolsPanel } from "@/components/whiteboard/ToolsPanel";
+import { SlideHistoryControls } from "@/components/whiteboard/SlideHistoryControls";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Spinner } from "@/components/ui/Spinner";
@@ -92,7 +93,9 @@ export default function WhiteboardEditor() {
   const [tool, setTool] = useState<ToolName>("select");
   const [color, setColor] = useState(DEFAULT_STROKE_COLOR);
   const [strokeWidth, setStrokeWidth] = useState(DEFAULT_STROKE_WIDTH);
+  const [eraserSize, setEraserSize] = useState(20);
   const [history, setHistory] = useState({ canUndo: false, canRedo: false });
+  const [zoomPercent, setZoomPercent] = useState(100);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [liveSession, setLiveSession] = useState<LiveSessionState | null>(null);
   const [sessionConfirmed, setSessionConfirmed] = useState(false);
@@ -915,6 +918,7 @@ export default function WhiteboardEditor() {
               <Button size="sm" variant="secondary" aria-label="Add new slide" title="Add new slide" onClick={() => { void handleAddPage(); }} loading={addingPage} disabled={!classroomId || !lessonId}>
                 <Plus className="h-4 w-4" /><span className="hidden sm:inline">{addingPage ? "Adding…" : "Add slide"}</span>
               </Button>
+              <SlideHistoryControls canUndo={history.canUndo} canRedo={history.canRedo} onUndo={() => boardRef.current?.undo()} onRedo={() => boardRef.current?.redo()} />
               <Button size="sm" variant="secondary" onClick={() => void handleExportPdf(true)} loading={exporting}><Download className="h-4 w-4" />Export slide</Button>
             </div>
           </div>}
@@ -924,10 +928,12 @@ export default function WhiteboardEditor() {
               tool={tool}
               color={color}
               strokeWidth={strokeWidth}
+              eraserSize={eraserSize}
               pageKey={activePageId}
               onContentChange={handleContentChange}
               onHistoryChange={setHistory}
               onToolConsumed={() => setTool("select")}
+              onZoomChange={setZoomPercent}
             />
           )}
         </div>
@@ -943,14 +949,13 @@ export default function WhiteboardEditor() {
             onColorChange={setColor}
             strokeWidth={strokeWidth}
             onStrokeWidthChange={setStrokeWidth}
-            canUndo={history.canUndo}
-            canRedo={history.canRedo}
-            onUndo={() => boardRef.current?.undo()}
-            onRedo={() => boardRef.current?.redo()}
+            eraserSize={eraserSize}
+            onEraserSizeChange={setEraserSize}
             onClear={() => setConfirmClear(true)}
             onZoomIn={() => boardRef.current?.zoomIn()}
             onZoomOut={() => boardRef.current?.zoomOut()}
             onFitToScreen={() => boardRef.current?.fitToScreen()}
+            zoomPercent={zoomPercent}
             onAddShape={(preset: ShapePreset, fill?: string) => boardRef.current?.addShape(preset, fill)}
             onAddTable={(rows, columns) => boardRef.current?.addTable(rows, columns)}
             onAddMathText={(value) => boardRef.current?.addMathText(value)}

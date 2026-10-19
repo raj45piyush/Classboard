@@ -59,4 +59,23 @@ describe("live board snapshots", () => {
     ]);
     expect(unsubscribe).toBeTypeOf("function");
   });
+
+  it("delivers an erase snapshot and a later undo snapshot to the student in order", async () => {
+    const received: string[] = [];
+    subscribeLiveSnapshot("room-1", "page-1", (json) => {
+      if (json) received.push(json);
+    });
+    const before = JSON.stringify({ objects: [{ type: "IText", text: "Teacher's note" }] });
+    const partialErase = JSON.stringify({ objects: [
+      { type: "IText", text: "Teacher's note" },
+      { type: "Path", globalCompositeOperation: "destination-out", strokeWidth: 20, path: [["M", 20, 30], ["L", 40, 30]] },
+    ] });
+    await writeLiveSnapshot("room-1", "lesson-1", "page-1", before, 200);
+    mocks.listener!({ exists: () => true, data: () => ({ json: partialErase, seq: 201 }), metadata: { fromCache: false } });
+    await writeLiveSnapshot("room-1", "lesson-1", "page-1", before, 202);
+    mocks.listener!({ exists: () => true, data: () => ({ json: before, seq: 202 }), metadata: { fromCache: false } });
+    expect(received).toEqual([partialErase, before]);
+    expect(JSON.parse(received[0]).objects).toHaveLength(2);
+    expect(JSON.parse(received[0]).objects[1].globalCompositeOperation).toBe("destination-out");
+  });
 });
